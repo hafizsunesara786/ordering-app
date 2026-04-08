@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>STMA Order Management</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js"></script>
+    <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/@emailjs/browser@3/dist/email.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.5/JsBarcode.all.min.js"></script>
+    <script type="text/javascript">
+       (function(){
+          emailjs.init("2KBK29MQ-k2ijZafD");
+       })();
+    </script>
+    <style>
+        .page { display: none; }
+        .page.active { display: flex; } /* Changed to flex for centering */
+        input::-webkit-outer-spin-button, input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+        .order-type-btn.active { border-color: #2563eb; background-color: #eff6ff; color: #1e40af; }
+    </style>
+</head>
+<body class="bg-slate-50 font-sans text-slate-900">
+
+    <div id="loginPage" class="page active min-h-screen items-center justify-center p-6 bg-gradient-to-br from-blue-900 to-slate-900">
+        <div class="bg-white p-10 rounded-[2.5rem] shadow-2xl max-w-md w-full border border-white/20">
+            <div class="text-center mb-10">
+                <div class="inline-block bg-blue-100 text-blue-800 text-xs font-black px-3 py-1 rounded-full mb-3 uppercase tracking-tighter">Warehouse Portal</div>
+                <h1 class="text-4xl font-black text-slate-800 tracking-tight">STMA</h1>
+                <p class="text-slate-400 text-sm mt-2 font-medium">Log in to manage your inventory orders</p>
+            </div>
+            
+            <div class="space-y-4 mb-6">
+                <input type="text" id="custName" placeholder="Full Name" class="w-full bg-slate-50 border-2 border-slate-100 p-4 rounded-2xl outline-none focus:border-blue-500 transition-all">
+                <input type="text" id="storeName" placeholder="Store Name" class="w-full bg-slate-50 border-2 border-slate-100 p-4 rounded-2xl outline-none focus:border-blue-500 transition-all">
+                <input type="text" id="accNumber" placeholder="STMA Account Number" class="w-full bg-slate-50 border-2 border-slate-100 p-4 rounded-2xl outline-none focus:border-blue-500 transition-all">
+            </div>
+
+            <div class="mb-8">
+                <label class="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3 block">Order Type</label>
+                <div class="grid grid-cols-2 gap-4">
+                    <button onclick="setOrderType('Pickup')" id="btnPickup" class="order-type-btn border-2 border-slate-100 p-4 rounded-2xl font-bold transition-all">Pickup</button>
+                    <button onclick="setOrderType('Delivery')" id="btnDelivery" class="order-type-btn border-2 border-slate-100 p-4 rounded-2xl font-bold transition-all">Delivery</button>
+                </div>
+            </div>
+
+            <div id="file-status" class="text-center mb-6 text-sm font-medium text-slate-400 italic">
+                Loading Catalog...
+            </div>
+
+            <button onclick="validateAndEnter()" class="w-full bg-blue-600 text-white font-black py-5 rounded-2xl shadow-xl shadow-blue-200 hover:bg-blue-700 transition-all active:scale-[0.98]">
+                Start Ordering
+            </button>
+        </div>
+    </div>
+
+    <div id="shopPage" class="page min-h-screen flex-col">
+        <header class="bg-white border-b border-slate-200 sticky top-0 z-50 p-4">
+            <div class="max-w-5xl mx-auto flex flex-col md:flex-row md:items-center gap-4 w-full">
+                <div class="flex-1">
+                    <input type="text" id="searchInput" oninput="debounceSearch()" placeholder="Search Name, UPC, or STMA Code..." 
+                        class="w-full bg-slate-100 p-4 rounded-2xl outline-none focus:ring-2 focus:ring-blue-500/20 border-none text-slate-700">
+                </div>
+                <button onclick="showCartPage()" class="relative bg-slate-900 text-white px-6 py-4 rounded-2xl font-bold flex items-center gap-3 active:scale-95 transition-all">
+                    <span>View Cart</span>
+                    <span id="cartCount" class="bg-blue-500 text-white text-[10px] w-6 h-6 flex items-center justify-center rounded-full">0</span>
+                </button>
+            </div>
+        </header>
+
+        <main class="max-w-5xl mx-auto px-4 py-8 w-full">
+            <div id="productGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6"></div>
+            <div id="loadMoreBtn" class="hidden mt-12 text-center pb-20">
+                <button onclick="renderMore()" class="bg-slate-200 text-slate-700 px-8 py-3 rounded-xl font-bold hover:bg-slate-300">Load More Products</button>
+            </div>
+        </main>
+    </div>
+
+    <div id="cartPage" class="page min-h-screen bg-white flex-col">
+        <div class="max-w-3xl mx-auto px-6 py-10 w-full">
+            <div class="flex items-center gap-4 mb-10">
+                <button onclick="showShopPage()" class="p-3 hover:bg-slate-100 rounded-full transition-colors text-slate-400">←</button>
+                <h2 class="text-3xl font-black text-slate-900">Review Order</h2>
+                <div id="cartOrderTypeDisplay" class="ml-auto bg-blue-100 text-blue-700 px-4 py-1 rounded-full text-xs font-bold uppercase tracking-widest"></div>
+            </div>
+
+            <div id="cartItemsList" class="space-y-6 mb-12"></div>
+
+            <div class="bg-slate-50 p-8 rounded-[2rem] border border-slate-100">
+                <div class="flex justify-between items-center mb-6">
+                    <span class="text-slate-400 font-bold uppercase tracking-widest text-xs">Total Amount</span>
+                    <span class="text-4xl font-black text-blue-900">$<span id="cartGrandTotal">0.00</span></span>
+                </div>
+                <button onclick="processOrder()" class="w-full bg-green-600 text-white font-black py-6 rounded-2xl text-xl shadow-xl shadow-green-100 hover:bg-green-700 transition-all active:scale-[0.98]">
+                    Confirm & Submit Order
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let allProducts = [];
+        let filteredProducts = [];
+        let cart = {};
+        let visibleCount = 30;
+        let searchTimeout;
+        let selectedOrderType = 'Pickup'; // Default
+
+        // 3. Auto-load file on startup
+        window.onload = initCatalog;
+
+        async function initCatalog() {
+            setOrderType('Pickup'); // Set default UI
+            try {
+                const response = await fetch('all_products.xlsx');
+                const arrayBuffer = await response.arrayBuffer();
+                const workbook = XLSX.read(new Uint8Array(arrayBuffer), { type: 'array' });
+                allProducts = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
+                document.getElementById('file-status').innerHTML = `<span class="text-green-600 font-bold">✓ Catalog Loaded: ${allProducts.length} Products</span>`;
+            } catch (error) {
+                console.error("Catalog Load Error:", error);
+                document.getElementById('file-status').innerHTML = `<span class="text-red-500">Error: catalog.xlsx not found in folder.</span>`;
+            }
+        }
+
+        function setOrderType(type) {
+            selectedOrderType = type;
+            document.querySelectorAll('.order-type-btn').forEach(btn => btn.classList.remove('active'));
+            document.getElementById(`btn${type}`).classList.add('active');
+            const display = document.getElementById('cartOrderTypeDisplay');
+            if(display) display.innerText = type;
+        }
+
+        // 2. Redirect logic inside validateAndEnter
+        function validateAndEnter() {
+            const name = document.getElementById('custName').value;
+            const store = document.getElementById('storeName').value;
+            const acc = document.getElementById('accNumber').value;
+
+            if (!name || !store || !acc || allProducts.length === 0) {
+                return alert("Please ensure all fields are filled and catalog is loaded.");
+            }
+            
+            showShopPage();
+        }
+
+        // Navigation
+        function showShopPage() {
+            document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+            document.getElementById('shopPage').classList.add('active');
+            filteredProducts = allProducts;
+            renderProducts();
+        }
+
+        function showCartPage() {
+            if (Object.keys(cart).length === 0) return alert("Your cart is empty!");
+            document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+            document.getElementById('cartPage').classList.add('active');
+            renderCartItems();
+        }
+
+        // Product Rendering & Logic (Kept same as original)
+        function debounceSearch() {
+            clearTimeout(searchTimeout);
+            searchTimeout = setTimeout(() => {
+                const q = document.getElementById('searchInput').value.toLowerCase();
+                filteredProducts = allProducts.filter(p => 
+                    String(p["Product Name"] || "").toLowerCase().includes(q) ||
+                    String(p["STMA CODE"] || "").toLowerCase().includes(q)
+                );
+                visibleCount = 30;
+                renderProducts();
+            }, 250);
+        }
+
+        function renderProducts() {
+            const grid = document.getElementById('productGrid');
+            grid.innerHTML = '';
+            filteredProducts.slice(0, visibleCount).forEach(p => {
+                const code = p["STMA CODE"];
+                const qty = cart[code] ? cart[code].quantity : 0;
+                const card = document.createElement('div');
+                card.className = "bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm hover:shadow-md transition-all";
+                card.innerHTML = `
+                    <div class="mb-6">
+                        <div class="text-[10px] font-bold text-blue-500 uppercase tracking-widest mb-1">Code: ${code}</div>
+                        <h3 class="font-bold text-slate-800 leading-tight h-10 overflow-hidden text-ellipsis">${p["Product Name"]}</h3>
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <span class="text-xl font-black text-slate-900">$${parseFloat(p.Price || 0).toFixed(2)}</span>
+                        <div class="flex items-center bg-slate-50 rounded-xl p-1 border border-slate-100">
+                            <button onclick="updateQty('${code}', -1)" class="w-8 h-8 flex items-center justify-center text-slate-400 font-bold hover:text-red-500">-</button>
+                            <span class="w-8 text-center font-bold text-sm" id="qty-cat-${code}">${qty}</span>
+                            <button onclick="updateQty('${code}', 1)" class="w-8 h-8 flex items-center justify-center text-slate-400 font-bold hover:text-green-500">+</button>
+                        </div>
+                    </div>
+                `;
+                grid.appendChild(card);
+            });
+            document.getElementById('loadMoreBtn').classList.toggle('hidden', visibleCount >= filteredProducts.length);
+        }
+
+        function renderMore() { visibleCount += 30; renderProducts(); }
+
+        function updateQty(code, delta) {
+            const product = allProducts.find(p => p["STMA CODE"] == code);
+            let q = (cart[code] ? cart[code].quantity : 0) + delta;
+            if (q <= 0) delete cart[code];
+            else cart[code] = { ...product, quantity: q };
+            
+            const catLabel = document.getElementById(`qty-cat-${code}`);
+            if (catLabel) catLabel.innerText = q > 0 ? q : 0;
+            updateGlobalTotals();
+        }
+
+        function updateGlobalTotals() {
+            const items = Object.values(cart);
+            document.getElementById('cartCount').innerText = items.length;
+            let total = 0;
+            items.forEach(i => total += (parseFloat(i.Price || 0) * i.quantity));
+            document.getElementById('cartGrandTotal').innerText = total.toFixed(2);
+        }
+
+        function renderCartItems() {
+            const list = document.getElementById('cartItemsList');
+            list.innerHTML = '';
+            const items = Object.values(cart);
+            if (items.length === 0) { showShopPage(); return; }
+            document.getElementById('cartOrderTypeDisplay').innerText = selectedOrderType;
+
+            items.forEach(i => {
+                const itemRow = document.createElement('div');
+                itemRow.className = "flex items-center justify-between p-6 bg-slate-50 rounded-2xl border border-slate-100";
+                itemRow.innerHTML = `
+                    <div class="flex-1 pr-4">
+                        <div class="text-[9px] font-bold text-slate-400 uppercase tracking-widest">${i["STMA CODE"]}</div>
+                        <div class="font-bold text-slate-800 text-sm">${i["Product Name"]}</div>
+                    </div>
+                    <div class="flex items-center gap-6">
+                        <div class="text-right">
+                            <div class="text-xs text-slate-400 font-bold">$${parseFloat(i.Price).toFixed(2)}</div>
+                            <div class="font-black text-slate-900">$${(i.Price * i.quantity).toFixed(2)}</div>
+                        </div>
+                    </div>
+                `;
+                list.appendChild(itemRow);
+            });
+        }
+
+        // // Final Order Processing
+        // async function processOrder() {
+        //     const { jsPDF } = window.jspdf;
+        //     const doc = new jsPDF();
+        //     const storeName = document.getElementById('storeName').value || "Store";
+        //     const customerName = document.getElementById('custName').value;
+        //     const accNum = document.getElementById('accNumber').value;
+
+        //     const rows = Object.values(cart).map(i => [
+        //         i["STMA CODE"], 
+        //         i["Product Name"], 
+        //         i.quantity, 
+        //         `$${parseFloat(i.Price).toFixed(2)}`, 
+        //         `$${(i.Price * i.quantity).toFixed(2)}`
+        //     ]);
+            
+        //     // PDF Header with Order Type
+        //     doc.setFontSize(18);
+        //     doc.text("STMA ORDER CONFIRMATION", 14, 20);
+        //     doc.setFontSize(11);
+        //     doc.text(`Customer: ${customerName}`, 14, 30);
+        //     doc.text(`Store: ${storeName} (${accNum})`, 14, 36);
+        //     doc.setFont(undefined, 'bold');
+        //     doc.text(`ORDER TYPE: ${selectedOrderType.toUpperCase()}`, 14, 42);
+        //     doc.setFont(undefined, 'normal');
+
+        //     doc.autoTable({ 
+        //         startY: 50, 
+        //         head: [['Code', 'Product', 'Qty', 'Unit', 'Total']], 
+        //         body: rows 
+        //     });
+
+        //     // Local Download First
+        //     doc.save(`Order_${storeName}_${selectedOrderType}.pdf`);
+
+        //     // Email Sending
+        //     try {
+        //         const pdfBase64 = doc.output('datauristring');
+        //         await emailjs.send("YOUR_SERVICE_ID", "YOUR_TEMPLATE_ID", {
+        //             store_name: storeName,
+        //             customer_name: customerName,
+        //             order_type: selectedOrderType,
+        //             my_pdf: pdfBase64 
+        //         });
+        //         alert("Order Submitted Successfully!");
+        //     } catch (error) {
+        //         console.error("Email Error:", error);
+        //         alert("Order Saved Locally, but email notification failed.");
+        //     } finally {
+        //         location.reload();
+        //     }
+        // }
+
+
+     async function processOrder() {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF();
+    const storeName = document.getElementById('storeName').value || "Store";
+    const customerName = document.getElementById('custName').value;
+    const accNum = document.getElementById('accNumber').value;
+
+    // Create a temporary hidden canvas for barcode generation
+    const canvas = document.createElement('canvas');
+
+    // --- 1. CALCULATE TOTALS ---
+    const cartArray = Object.values(cart);
+    const totalItems = cartArray.reduce((sum, item) => sum + item.quantity, 0);
+    const totalDollarAmount = cartArray.reduce((sum, item) => sum + (item.Price * item.quantity), 0);
+
+    // 2. Prepare Rows
+    const rows = cartArray.map(i => [
+        "", // Column 0: Placeholder for Barcode
+        i["STMA CODE"], 
+        i["Product Name"], 
+        i.quantity, 
+        `$${(i.Price * i.quantity).toFixed(2)}`
+    ]);
+    
+    doc.setFontSize(18);
+    doc.text("STMA ORDER CONFIRMATION", 14, 20);
+    doc.setFontSize(11);
+    doc.text(`Customer: ${customerName} | Store: ${storeName} (${accNum})`, 14, 30);
+    doc.text(`ORDER TYPE: ${selectedOrderType.toUpperCase()}`, 14, 38);
+
+    doc.autoTable({ 
+        startY: 45, 
+        head: [['Barcode', 'Code', 'Product', 'Qty', 'Total']], 
+        body: rows,
+        // --- 3. ADD FOOTER ROW ---
+        foot: [[
+            '', // Barcode col
+            '', // Code col
+            'GRAND TOTAL', 
+            totalItems, 
+            `$${totalDollarAmount.toFixed(2)}`
+        ]],
+        styles: { 
+            minCellHeight: 20, 
+            verticalLineColor: [220, 220, 220], 
+            verticalLineWidth: 0.1,
+            valign: 'middle' 
+        },
+        footStyles: { 
+            fillColor: [240, 240, 240], 
+            textColor: [0, 0, 0], 
+            fontStyle: 'bold', 
+            minCellHeight: 12 
+        },
+        columnStyles: {
+            0: { cellWidth: 40 }, 
+        },
+        didDrawCell: (data) => {
+            if (data.section === 'body' && data.column.index === 0) {
+                const item = cartArray[data.row.index];
+                const upcCode = String(item["STMA CODE"]);
+
+                try {
+                    JsBarcode(canvas, upcCode, {
+                        format: "CODE128",
+                        displayValue: false,
+                        margin: 0
+                    });
+                    
+                    const imgData = canvas.toDataURL('image/png');
+                    doc.addImage(imgData, 'PNG', data.cell.x + 2, data.cell.y + 2, 36, 16);
+                } catch (e) {
+                    console.error("Barcode generation failed for:", upcCode);
+                }
+            }
+        }
+    });
+
+    // 4. Local Download
+    doc.save(`Order_${storeName}_${selectedOrderType}.pdf`);
+
+    // 5. Email Sending
+    // const pdfBase64 = doc.output('datauristring');
+    // const storeName = document.getElementById('storeName').value;
+    // const customerName = document.getElementById('custName').value;
+
+    // --- CRITICAL: You must define pdfBase64 BEFORE creating orderData ---
+    const pdfBase64 = doc.output('datauristring');
+
+    // Data object to send to Google
+    const orderData = {
+        customer: customerName,
+        store: storeName,
+        type: selectedOrderType,
+        qty: totalItems,
+        total: totalDollarAmount.toFixed(2),
+        pdf: pdfBase64
+    };
+
+    try {
+        // Send to Google Apps Script
+        const response = await fetch("https://script.google.com/macros/s/AKfycbx4IJ9c2CL95ptAJXcVPxZcmQtCsaLEtC9v6ZKgm20iVRjJBUS19hG8fM4dazTTP13h/exec", {
+            method: "POST",
+            mode: "no-cors", // Required for Google Apps Script cross-domain
+            body: JSON.stringify(orderData)
+        });
+
+        // With no-cors, we can't read the response body, so we assume success 
+        // if the fetch doesn't throw an error.
+        alert("Order Submitted! PDF Downloaded and Email Sent.");
+        
+    } catch (error) {
+        console.error("Mail Error:", error);
+        alert("PDF Saved locally, but there was an error sending the email.");
+    } finally {
+        location.reload();
+    }
+}
+
+
+    </script>
+</body>
+</html>
